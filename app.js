@@ -247,18 +247,29 @@ async function afterSignedIn() {
     // 隱藏登入，顯示 app
     loginOverlay.classList.add("hidden");
 
-    // 從 users sheet 查找使用者
-    const userData = await loadUserData();
+    // 從 users sheet 查找使用者，失敗時回退至本機快取
+    let userData = null;
+    try {
+      userData = await loadUserData();
+    } catch (err) {
+      console.warn("Sheet 讀取失敗，嘗試本機快取：", err.message);
+      userData = loadUserFromCache();
+      if (!userData) throw err; // 快取也沒有 → 拋出讓外層處理
+    }
+
+    // Sheet 沒有此用戶時，再查本機快取（避免 Sheet 寫入失敗導致永久重設）
+    if (!userData) userData = loadUserFromCache();
 
     if (!userData) {
-      // 新使用者 — 顯示歡迎畫面
+      // 確認是真正的新使用者 — 顯示歡迎畫面
       hideLoading();
       welcomeOverlay.classList.add("active");
       return;
     }
 
-    // 舊使用者 — 載入所有資料
+    // 舊使用者 — 更新本機快取並載入所有資料
     currentUser = userData;
+    saveUserToCache(userData);
     await loadAllData();
     showApp();
     hideLoading();
@@ -309,6 +320,7 @@ async function handleStartAdventure() {
     ]);
 
     currentUser = newUser;
+    saveUserToCache(newUser); // 本機快取，確保下次登入能認出舊用戶
     await loadAllData();
     showApp();
     hideLoading();
@@ -430,34 +442,44 @@ async function getSheetData(rangeA1) {
    讀取 使用者
 ========================= */
 async function loadUserData() {
-  try {
-    const rows = await getSheetData(CONFIG.SHEET_USERS + "!A:L");
-    if (rows.length <= 1) return null; // only header
+  // Let API errors bubble up — callers decide how to handle them
+  const rows = await getSheetData(CONFIG.SHEET_USERS + "!A:L");
+  if (rows.length <= 1) return null; // only header
 
-    for (let i = 1; i < rows.length; i++) {
-      const r = rows[i];
-      if (r[0] === userId) {
-        return {
-          _rowIndex: i + 1, // 1-based row in sheet
-          user_id: r[0],
-          display_name: r[1] || "冒險者",
-          avatar_type: r[2] || "default",
-          level: Number(r[3]) || 1,
-          exp: Number(r[4]) || 0,
-          streak_current: Number(r[5]) || 0,
-          streak_best: Number(r[6]) || 0,
-          last_checkin_date: r[7] || "",
-          total_logged_days: Number(r[8]) || 0,
-          flip_available: Number(r[9]) || 0,
-          created_at: r[10] || "",
-          updated_at: r[11] || ""
-        };
-      }
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i];
+    if (r[0] === userId) {
+      return {
+        _rowIndex: i + 1, // 1-based row in sheet
+        user_id: r[0],
+        display_name: r[1] || "冒險者",
+        avatar_type: r[2] || "default",
+        level: Number(r[3]) || 1,
+        exp: Number(r[4]) || 0,
+        streak_current: Number(r[5]) || 0,
+        streak_best: Number(r[6]) || 0,
+        last_checkin_date: r[7] || "",
+        total_logged_days: Number(r[8]) || 0,
+        flip_available: Number(r[9]) || 0,
+        created_at: r[10] || "",
+        updated_at: r[11] || ""
+      };
     }
-    return null;
-  } catch {
-    return null;
   }
+  return null;
+}
+
+function saveUserToCache(user) {
+  try {
+    localStorage.setItem("dbs_user_" + userId, JSON.stringify(user));
+  } catch { /* localStorage 不可用時靜默忽略 */ }
+}
+
+function loadUserFromCache() {
+  try {
+    const raw = localStorage.getItem("dbs_user_" + userId);
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
 }
 
 async function saveUserData() {
