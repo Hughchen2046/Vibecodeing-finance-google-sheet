@@ -21,7 +21,7 @@ const CONFIG = {
   SHEET_USER_CARDS:        "user_cards",
   SHEET_SETTINGS:          "settings",
 
-  SCOPES: "https://www.googleapis.com/auth/spreadsheets"
+  SCOPES: "https://www.googleapis.com/auth/spreadsheets email"
 };
 
 /* =========================
@@ -236,6 +236,12 @@ async function afterSignedIn() {
     }).then(r => r.json());
 
     userEmail = userInfo.email;
+    if (!userEmail) {
+      hideLoading();
+      showToast("無法取得帳號 Email，請確認 Google 帳號授權", "error");
+      loginStatus.textContent = "登入失敗：無法取得 Email";
+      return;
+    }
     userId = simpleHash(userEmail);
 
     // 隱藏登入，顯示 app
